@@ -174,7 +174,6 @@ resource "kubectl_manifest" "argocd_ingress" {
   depends_on = [time_sleep.wait_for_alb_controller]
 }
 
-# ArgoCD Application for Nginx
 resource "kubectl_manifest" "argocd_nginx_app" {
   yaml_body = <<-YAML
     apiVersion: argoproj.io/v1alpha1
@@ -187,13 +186,7 @@ resource "kubectl_manifest" "argocd_nginx_app" {
       source:
         repoURL: ${var.git_repo_url}
         targetRevision: HEAD
-        path: helm
-        helm:
-          parameters:
-          - name: image.repository
-            value: ${data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.name}.amazonaws.com/nginx
-          - name: image.tag
-            value: latest
+        path: k8s/helm
       destination:
         server: https://kubernetes.default.svc
         namespace: default
@@ -205,6 +198,7 @@ resource "kubectl_manifest" "argocd_nginx_app" {
 
   depends_on = [time_sleep.wait_for_alb_controller]
 }
+
 
 # Get ArgoCD initial admin password
 data "kubernetes_secret_v1" "argocd_admin_password" {
