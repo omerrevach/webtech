@@ -1,7 +1,4 @@
-# Use official Nginx image
 FROM nginx:1.27-alpine
-
-# Set work directory
 WORKDIR /usr/share/nginx/html
 
 # Copy custom nginx config

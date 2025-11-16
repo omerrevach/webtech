@@ -6,7 +6,7 @@ metadata:
     alb.ingress.kubernetes.io/scheme: {{ .Values.ingress.scheme }}
     alb.ingress.kubernetes.io/target-type: {{ .Values.ingress.targetType }}
     alb.ingress.kubernetes.io/group.name: {{ .Values.ingress.groupName }}
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'  # Explicit port 80
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
     alb.ingress.kubernetes.io/backend-protocol: {{ .Values.ingress.backendProtocol }}
     alb.ingress.kubernetes.io/healthcheck-path: {{ .Values.ingress.healthcheckPath }}
     alb.ingress.kubernetes.io/success-codes: {{ .Values.ingress.successCodes | quote }}

@@ -3,7 +3,7 @@ replicaCount: 2
 image:
   repository: ""  # Set by Terraform
   pullPolicy: IfNotPresent
-  tag: "latest"
+  tag: "build-5"
 
 service:
   type: ClusterIP
