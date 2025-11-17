@@ -16,6 +16,7 @@ This project demonstrates a complete DevOps pipeline for deploying an Nginx web 
   - [5. Terraform Infrastructure](#5-terraform-infrastructure)
 - [Bash Scripts](#bash-scripts)
 - [Architecture Decisions](#architecture-decisions)
+- [Production vs Demo Trade-offs](#production-vs-demo-trade-offs)
 
 ## Project Overview
 
@@ -81,15 +82,21 @@ This project includes:
 
 ### Local Testing
 ```bash
-# Build and run the Docker container
+# Build and run the Docker container (uses port 80 by default)
 cd bash
+./build_and_run.sh
+
+# Or specify custom image name and port
 ./build_and_run.sh nginx 8080
 
-# Check if the service is healthy
+# Check if the service is healthy (default port 80)
+./check_health.sh http://localhost/healthz 30
+
+# Or for custom port
 ./check_health.sh http://localhost:8080/healthz 30
 
 # View the application
-open http://localhost:8080
+open http://localhost
 ```
 
 ### Deploy to Kubernetes (EKS)
@@ -456,11 +463,14 @@ Polls a URL until it returns HTTP 200 or times out.
 
 **Usage:**
 ```bash
-# Check with default 20s timeout
-./check_health.sh http://localhost:8080/healthz
+# Check with default 20s timeout (port 80)
+./check_health.sh http://localhost/healthz
 
 # Custom timeout
 ./check_health.sh http://localhost/healthz 60
+
+# For custom port
+./check_health.sh http://localhost:8080/healthz 30
 ```
 
 **Features:**
