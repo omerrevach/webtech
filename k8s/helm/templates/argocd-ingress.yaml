@@ -6,8 +6,8 @@ metadata:
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/group.name: {{ .Values.ingress.groupName }}  # Same group as nginx!
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 8080}]'  # Port 8080
+    alb.ingress.kubernetes.io/group.name: {{ .Values.ingress.groupName }}  # Same group as nginx
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 8080}]'  # Port 8080 that rgocd will be used (nginx app accessible port 80)
     alb.ingress.kubernetes.io/backend-protocol: HTTP
     alb.ingress.kubernetes.io/healthcheck-path: /healthz
     alb.ingress.kubernetes.io/healthcheck-port: "8080"

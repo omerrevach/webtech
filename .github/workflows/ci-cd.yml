@@ -17,8 +17,10 @@ env:
 
 # Required for OIDC
 permissions:
-  id-token: write      # For OIDC authentication
-  contents: write      # For committing values.yaml changes
+  # For OIDC authentication
+  id-token: write
+  # For committing values.yaml changes
+  contents: write
 
 jobs:
   build-and-deploy:
@@ -35,6 +37,11 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: GitHubActions-${{ github.run_id }}
+
+      - name: Install and Run Bandit
+        run: |
+          pip install bandit
+          bandit -r . -ll || true # Prevent pipeline failure on findings, optional
 
       - name: Login to Amazon ECR
         id: login-ecr

@@ -1,76 +1,9 @@
-terraform {
-  required_version = ">= 1.3.2"
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-    helm = {
-      source  = "hashicorp/helm"
-      version = "~> 2.16"
-    }
-    kubernetes = {
-      source  = "hashicorp/kubernetes"
-      version = "~> 2.20"
-    }
-    kubectl = {
-      source  = "gavinbunney/kubectl"
-      version = "~> 1.14"
-    }
-  }
-}
-
-provider "aws" {
-  region = var.region
-}
-
-# Add these data sources
-data "aws_caller_identity" "current" {}
-data "aws_region" "current" {}
-
-# Use module outputs directly instead of data sources
-provider "kubernetes" {
-  host                   = module.eks.cluster_endpoint
-  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-  
-  exec {
-    api_version = "client.authentication.k8s.io/v1beta1"
-    command     = "aws"
-    args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
-  }
-}
-
-provider "helm" {
-  kubernetes {
-    host                   = module.eks.cluster_endpoint
-    cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-    
-    exec {
-      api_version = "client.authentication.k8s.io/v1beta1"
-      command     = "aws"
-      args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
-    }
-  }
-}
-
-provider "kubectl" {
-  host                   = module.eks.cluster_endpoint
-  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-  
-  exec {
-    api_version = "client.authentication.k8s.io/v1beta1"
-    command     = "aws"
-    args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
-  }
-}
-
 locals {
   addon_timeouts = {
     after_eks = "20s"
   }
 }
 
-# VPC Module
 module "vpc" {
   source = "./modules/vpc"
 
@@ -80,7 +13,6 @@ module "vpc" {
   private_cidrs = ["10.0.11.0/24", "10.0.12.0/24"]
 }
 
-# EKS Module
 module "eks" {
   source = "./modules/eks"
 
@@ -98,7 +30,6 @@ resource "time_sleep" "after_eks" {
   create_duration = local.addon_timeouts["after_eks"]
 }
 
-# EKS Addons Module
 module "eks_addons" {
   source = "./modules/eks-addons"
 
@@ -197,47 +128,4 @@ resource "kubectl_manifest" "argocd_nginx_app" {
   YAML
 
   depends_on = [time_sleep.wait_for_alb_controller]
-}
-
-
-# Get ArgoCD initial admin password
-data "kubernetes_secret_v1" "argocd_admin_password" {
-  metadata {
-    name      = "argocd-initial-admin-secret"
-    namespace = "argocd"
-  }
-
-  depends_on = [time_sleep.wait_for_alb_controller]
-}
-
-# Output the Ingress URL
-data "kubernetes_ingress_v1" "nginx" {
-  metadata {
-    name      = "nginx-ingress"
-    namespace = "default"
-  }
-
-  depends_on = [helm_release.nginx_app]
-}
-
-# Outputs
-output "nginx_url" {
-  description = "URL to access the Nginx application (port 80)"
-  value       = try("http://${data.kubernetes_ingress_v1.nginx.status[0].load_balancer[0].ingress[0].hostname}", "ALB is being provisioned...")
-}
-
-output "argocd_url" {
-  description = "URL to access ArgoCD UI (port 8080)"
-  value       = try("http://${data.kubernetes_ingress_v1.nginx.status[0].load_balancer[0].ingress[0].hostname}:8080", "ALB is being provisioned...")
-}
-
-output "argocd_admin_password" {
-  description = "ArgoCD admin password (username: admin)"
-  value       = try(data.kubernetes_secret_v1.argocd_admin_password.data["password"], "ArgoCD not ready yet")
-  sensitive   = true
-}
-
-output "git_repo" {
-  description = "Git repository configured for ArgoCD"
-  value       = var.git_repo_url
 }
