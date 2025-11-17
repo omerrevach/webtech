@@ -87,13 +87,13 @@ cd bash
 ./build_and_run.sh
 
 # Or specify custom image name and port
-./build_and_run.sh nginx 8080
+./build_and_run.sh nginx 80
 
 # Check if the service is healthy (default port 80)
 ./check_health.sh http://localhost/healthz 30
 
 # Or for custom port
-./check_health.sh http://localhost:8080/healthz 30
+./check_health.sh http://localhost:80/healthz 30
 
 # View the application
 open http://localhost
@@ -137,14 +137,14 @@ aws ecr create-repository \
 This allows GitHub Actions to authenticate with AWS without storing long-lived credentials.
 
 **Step 1: Create OIDC Identity Provider**
-```bash
-# In AWS Console: IAM > Identity Providers > Add Provider
-# Or use AWS CLI:
-aws iam create-open-id-connect-provider \
-  --url https://token.actions.githubusercontent.com \
-  --client-id-list sts.amazonaws.com \
-  --thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1
-```
+1. Log in to AWS Console and navigate to **IAM**
+2. In the left sidebar, click on **Identity providers**
+3. Click **Add provider** button
+4. Configure the provider:
+   - **Provider type**: Select "OpenID Connect"
+   - **Provider URL**: Enter `https://token.actions.githubusercontent.com`
+   - **Audience**: Enter `sts.amazonaws.com`
+5. Click **Add provider**
 
 **Step 2: Create IAM Policy**
 
@@ -213,7 +213,7 @@ Create a role named `github-actions-ecr-role` with the following trust policy:
 
 Replace:
 - `<YOUR-ACCOUNT-ID>` with your AWS account ID
-- `<YOUR-GITHUB-USERNAME>/<YOUR-REPO-NAME>` with your GitHub repository (e.g., `omerrevach/webtech`)
+- `<YOUR-GITHUB-USERNAME>/<YOUR-REPO-NAME>` with your GitHub repository (`omerrevach/webtech`)
 ```bash
 # Create the role
 aws iam create-role \
@@ -249,18 +249,18 @@ The Dockerfile creates a secure Nginx image:
 #### Build Locally
 ```bash
 # Build the image
-docker build -t nginx:local .
+docker build -t nginx .
 
 # Run the container
-docker run -d -p 80:80 --name nginx-test nginx:local
+docker run -d -p 80:80 nginx
 
 # Test the endpoints
 curl http://localhost           # Main page
 curl http://localhost/healthz   # Health check
 
 # Cleanup
-docker stop nginx-test
-docker rm nginx-test
+docker stop nginx
+docker rm nginx
 ```
 
 ### 3. Kubernetes Deployment
@@ -293,24 +293,26 @@ readinessProbe:
   periodSeconds: 5
 ```
 
-#### Deploy with Helm (Manual)
-```bash
-# Install the chart
-helm install nginx-app k8s/helm/ \
-  --set image.repository=<ECR-REPO-URL> \
-  --set image.tag=latest
+### 5. Terraform Infrastructure
 
-# Upgrade the deployment
-helm upgrade nginx-app k8s/helm/
+This project includes two Terraform setups demonstrating different deployment approaches.
 
-# Check deployment status
-kubectl get pods
-kubectl get svc
-kubectl get ingress
+#### EKS Cluster (k8s/tf/)
 
-# Get ALB URL
-kubectl get ingress nginx-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
-```
+Production-grade Kubernetes cluster that **automatically** deploys the complete stack including the application.
+
+**What Terraform deploys:**
+
+- **VPC Infrastructure**: Public and private subnets across multiple AZs with proper routing
+- **EKS Cluster**: Managed Kubernetes cluster with SPOT instance node groups
+- **EKS Add-ons**: CoreDNS, kube-proxy, VPC CNI for cluster functionality
+- **AWS Load Balancer Controller**: Automatically provisions ALBs for Ingress resources
+- **ArgoCD**: GitOps tool installed and configured in the `argocd` namespace
+- **Nginx Application**: Deployed via Helm directly from Terraform
+- **Ingress Resources**: 
+  - ALB for Nginx application (port 80)
+  - Separate ALB for ArgoCD UI (port 8080)
+
 
 ### 4. CI/CD Pipeline
 
@@ -384,31 +386,7 @@ The pipeline updates `values.yaml`, and ArgoCD automatically syncs the changes t
 
 ### 5. Terraform Infrastructure
 
-This project includes two Terraform setups demonstrating different deployment approaches.
-
-#### Option 1: EKS Cluster (k8s/tf/)
-
-Production-grade Kubernetes cluster with:
-
-- EKS cluster with managed node groups (SPOT instances)
-- VPC with public and private subnets across multiple AZs
-- AWS Load Balancer Controller for ingress
-- ArgoCD for GitOps deployments
-- Proper IAM roles and OIDC provider
-```bash
-cd k8s/tf
-terraform init
-terraform plan
-terraform apply
-
-# Get cluster credentials
-aws eks update-kubeconfig --region eu-north-1 --name <cluster-name>
-
-# Access ArgoCD
-kubectl get ingress -n argocd
-```
-
-#### Option 2: EC2 with ALB (tf/)
+#### EC2 with ALB (tf/)
 
 Traditional EC2-based deployment with:
 
@@ -447,7 +425,7 @@ Builds and runs the Docker container locally.
 ./build_and_run.sh
 
 # Custom image name and port
-./build_and_run.sh my-nginx 8080
+./build_and_run.sh nginx 80
 ```
 
 **Features:**
@@ -470,15 +448,8 @@ Polls a URL until it returns HTTP 200 or times out.
 ./check_health.sh http://localhost/healthz 60
 
 # For custom port
-./check_health.sh http://localhost:8080/healthz 30
+./check_health.sh http://localhost:80/healthz 30
 ```
-
-**Features:**
-
-- Configurable timeout and interval
-- Distinguishes between network errors and HTTP errors
-- Returns exit code 0 for success, 1 for failure
-- Useful in CI/CD pipelines to wait for service readiness
 
 ## Architecture Decisions
 
@@ -517,7 +488,6 @@ I implemented a NAT instance in this project to minimize costs for the demonstra
 **Why I used NAT instance here:**
 - **Cost savings**: NAT instance costs around $3-5/month vs NAT Gateway at $32+/month
 - **Demonstration purposes**: Shows the concept without ongoing AWS charges
-- **Learning opportunity**: Understanding both approaches
 
 **Other cost optimizations:**
 - **VPC endpoints**: Avoid NAT Gateway data transfer charges
@@ -542,13 +512,11 @@ In a production environment, I would never expose ArgoCD on the same ALB as the 
 
 - **Internal ALB for ArgoCD**: Deploy ArgoCD behind an internal-facing ALB accessible only from within the VPC or through VPN/bastion
 - **Separate ALB for application**: Keep application traffic completely isolated
-- **Additional security**: Add authentication (SSO, LDAP) and restrict access by IP/security group
 
 **Why separate them:**
 - **Security**: ArgoCD has access to deploy across your cluster and should not be publicly accessible
 - **Blast radius**: Compromise of one service doesn't affect the other
 - **Traffic isolation**: Application traffic spikes don't impact ArgoCD performance
-- **Different access patterns**: Internal tools need different security controls than public-facing apps
 
 The combined ALB approach here is purely to demonstrate the concepts without additional AWS costs.
 
