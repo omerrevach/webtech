@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Don't exit on first error here – we want to handle curl failures manually
+# Don't exit on first error here want to handle curl failures manually
 set -u  # fail on unset variables
 
 URL=${1:-}
@@ -10,7 +10,7 @@ ELAPSED=0
 
 if [ -z "$URL" ]; then
   echo "[ERROR] Usage: ./check_health.sh <url> [timeout_seconds]"
-  echo "Example: ./check_health.sh http://localhost:8080/healthz 30"
+  echo "Example: ./check_health.sh http://localhost:80/healthz 30"
   exit 1
 fi
 

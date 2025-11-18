@@ -7,14 +7,11 @@ This project demonstrates a complete DevOps pipeline for deploying an Nginx web 
 - [Project Overview](#project-overview)
 - [Project Structure](#project-structure)
 - [Prerequisites](#prerequisites)
-- [Quick Start](#quick-start)
-- [Detailed Setup](#detailed-setup)
-  - [1. AWS Setup](#1-aws-setup)
-  - [2. Docker Setup](#2-docker-setup)
-  - [3. Kubernetes Deployment](#3-kubernetes-deployment)
-  - [4. CI/CD Pipeline](#4-cicd-pipeline)
-  - [5. Terraform Infrastructure](#5-terraform-infrastructure)
-- [Bash Scripts](#bash-scripts)
+- [Assignment Tasks](#assignment-tasks)
+  - [Task 1 & 2: Nginx Setup and Docker](#task-1--2-nginx-setup-and-docker)
+  - [Task 3 & 4: Kubernetes and CI/CD Pipeline](#task-3--4-kubernetes-and-cicd-pipeline)
+  - [Task 5: Terraform Infrastructure](#task-5-terraform-infrastructure)
+  - [Task 6: Bash Scripts](#task-6-bash-scripts)
 - [Architecture Decisions](#architecture-decisions)
 - [Production vs Demo Trade-offs](#production-vs-demo-trade-offs)
 
@@ -78,65 +75,125 @@ This project includes:
 - GitHub account
 - AWS account
 
-## Quick Start
+## Assignment Tasks
 
-### Local Testing
+### Task 1 & 2: Nginx Setup and Docker
+
+This task creates a custom Nginx Docker image with a simple HTML page and health check endpoint.
+
+#### What's Included:
+
+**nginx.conf:**
+- Listens on port 80
+- Serves `index.html` from `/usr/share/nginx/html`
+- Health check endpoint at `/healthz` that returns HTTP 200
+
+**index.html:**
+- Simple HTML page displaying "Nginx Test Environment"
+
+**Dockerfile:**
+- Based on `nginx:1.27-alpine` for small image size
+- Runs as non-root user (nginxuser) for security
+- Uses `libcap` to allow non-root user to bind to port 80
+- Copies custom nginx.conf and index.html
+
+#### Run Locally:
 ```bash
-# Build and run the Docker container (uses port 80 by default)
-cd bash
-./build_and_run.sh
+# Build the Docker image
+docker build -t nginx .
 
-# Or specify custom image name and port
-./build_and_run.sh nginx 80
+# Run the container
+docker run -d -p 80:80 nginx
 
-# Check if the service is healthy (default port 80)
-./check_health.sh http://localhost/healthz 30
+# Test the main page
+curl http://localhost
 
-# Or for custom port
-./check_health.sh http://localhost:80/healthz 30
+# Test the health check endpoint
+curl http://localhost/healthz
 
-# View the application
+# View in browser
 open http://localhost
+
+# Cleanup
+docker stop nginx
+docker rm nginx
 ```
 
-### Deploy to Kubernetes (EKS)
+**Expected Output:**
+- Main page shows: "Nginx Test Environment"
+- Health check returns: "ok" with HTTP 200 status
+
+---
+
+### Task 3 & 4: Kubernetes and CI/CD Pipeline
+
+These tasks work together to deploy the Nginx application to Kubernetes with automated CI/CD.
+
+#### What's Included:
+
+**Kubernetes Resources (Helm Chart):**
+- **Deployment**: 2 replicas with resource limits, liveness and readiness probes
+- **Service**: ClusterIP service exposing port 80
+- **Ingress**: AWS ALB for external access
+- **Health Probes**: Both probes check `/healthz` endpoint
+
+**CI/CD Pipeline (GitHub Actions):**
+- Triggers on changes to `nginx/index.html`, Dockerfile, or Helm charts
+- Builds Docker image with unique tag (build number)
+- Pushes to Amazon ECR
+- Updates Helm `values.yaml` with new image tag
+- ArgoCD automatically deploys the changes
+
+**Infrastructure (EKS via Terraform):**
+- Complete EKS cluster with VPC, subnets, and routing
+- AWS Load Balancer Controller for ALB provisioning
+- ArgoCD for GitOps continuous deployment
+- Nginx application automatically deployed via Helm
+
+#### Prerequisites:
+
+**1. Create S3 Bucket for Terraform State (Manual):**
 ```bash
-# Navigate to EKS Terraform directory
-cd k8s/tf
+# Create the S3 bucket
+aws s3api create-bucket \
+  --bucket nginx-test-env-tf-state-omer-1234 \
+  --region eu-north-1 \
+  --create-bucket-configuration LocationConstraint=eu-north-1
 
-# Initialize and apply Terraform
-terraform init
-terraform plan
-terraform apply
+# Enable versioning
+aws s3api put-bucket-versioning \
+  --bucket nginx-test-env-tf-state-omer-1234 \
+  --versioning-configuration Status=Enabled
 
-# Update kubeconfig
-aws eks update-kubeconfig --region eu-north-1 --name <cluster-name>
+# Enable encryption
+aws s3api put-bucket-encryption \
+  --bucket nginx-test-env-tf-state-omer-1234 \
+  --server-side-encryption-configuration '{
+    "Rules": [{
+      "ApplyServerSideEncryptionByDefault": {
+        "SSEAlgorithm": "AES256"
+      }
+    }]
+  }'
 
-# Verify deployment
-kubectl get pods
-kubectl get svc
-kubectl get ingress
+# Block public access
+aws s3api put-public-access-block \
+  --bucket nginx-test-env-tf-state-omer-1234 \
+  --public-access-block-configuration \
+    BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
 ```
 
-## Detailed Setup
-
-### 1. AWS Setup
-
-#### Create ECR Repository
+**2. Create ECR Repository:**
 ```bash
-# Create the ECR repository for storing Docker images
 aws ecr create-repository \
   --repository-name nginx \
   --region eu-north-1
-
-# Note the repository URI from the output
 ```
 
-#### Setup GitHub OIDC Authentication
+**3. Setup GitHub OIDC Authentication:**
 
-This allows GitHub Actions to authenticate with AWS without storing long-lived credentials.
+**Step 3a: Create OIDC Identity Provider**
 
-**Step 1: Create OIDC Identity Provider**
 1. Log in to AWS Console and navigate to **IAM**
 2. In the left sidebar, click on **Identity providers**
 3. Click **Add provider** button
@@ -146,7 +203,7 @@ This allows GitHub Actions to authenticate with AWS without storing long-lived c
    - **Audience**: Enter `sts.amazonaws.com`
 5. Click **Add provider**
 
-**Step 2: Create IAM Policy**
+**Step 3b: Create IAM Policy**
 
 Create a policy named `github-actions-ecr-push-policy`:
 ```json
@@ -176,8 +233,6 @@ Create a policy named `github-actions-ecr-push-policy`:
     ]
 }
 ```
-
-Replace `<YOUR-ACCOUNT-ID>` with your AWS account ID.
 ```bash
 # Create the policy
 aws iam create-policy \
@@ -185,9 +240,9 @@ aws iam create-policy \
   --policy-document file://policy.json
 ```
 
-**Step 3: Create IAM Role**
+**Step 3c: Create IAM Role**
 
-Create a role named `github-actions-ecr-role` with the following trust policy:
+Create a role named `github-actions-ecr-role` with trust policy:
 ```json
 {
     "Version": "2012-10-17",
@@ -210,246 +265,280 @@ Create a role named `github-actions-ecr-role` with the following trust policy:
     ]
 }
 ```
-
-Replace:
-- `<YOUR-ACCOUNT-ID>` with your AWS account ID
-- `<YOUR-GITHUB-USERNAME>/<YOUR-REPO-NAME>` with your GitHub repository (`omerrevach/webtech`)
 ```bash
 # Create the role
 aws iam create-role \
   --role-name github-actions-ecr-role \
   --assume-role-policy-document file://trust-policy.json
 
-# Attach the policy to the role
+# Attach the policy
 aws iam attach-role-policy \
   --role-name github-actions-ecr-role \
   --policy-arn arn:aws:iam::<YOUR-ACCOUNT-ID>:policy/github-actions-ecr-push-policy
 ```
 
-**Step 4: Add GitHub Secret**
+**Step 3d: Add GitHub Secret**
 
-In your GitHub repository:
+1. Go to your GitHub repository
+2. Navigate to Settings > Secrets and variables > Actions
+3. Click "New repository secret"
+4. Name: `AWS_ROLE_ARN`
+5. Value: `arn:aws:iam::<YOUR-ACCOUNT-ID>:role/github-actions-ecr-role`
 
-1. Go to Settings > Secrets and variables > Actions
-2. Click "New repository secret"
-3. Name: `AWS_ROLE_ARN`
-4. Value: `arn:aws:iam::<YOUR-ACCOUNT-ID>:role/github-actions-ecr-role`
-
-### 2. Docker Setup
-
-#### Dockerfile Overview
-
-The Dockerfile creates a secure Nginx image:
-
-- Based on `nginx:1.27-alpine` for small image size
-- Runs as non-root user (nginxuser) for security
-- Uses `libcap` to allow non-root user to bind to port 80
-- Copies custom nginx.conf and index.html
-
-#### Build Locally
+#### Deploy EKS Infrastructure:
 ```bash
-# Build the image
-docker build -t nginx .
+# Navigate to EKS Terraform directory
+cd k8s/tf
 
-# Run the container
-docker run -d -p 80:80 nginx
-
-# Test the endpoints
-curl http://localhost           # Main page
-curl http://localhost/healthz   # Health check
-
-# Cleanup
-docker stop nginx
-docker rm nginx
-```
-
-### 3. Kubernetes Deployment
-
-#### Helm Chart Structure
-
-The Helm chart includes:
-
-- **Deployment**: Runs 2 replicas with resource limits and health probes
-- **Service**: ClusterIP service exposing port 80
-- **Ingress**: AWS ALB ingress for external access
-- **ArgoCD Ingress**: Separate ingress for ArgoCD UI on port 8080
-
-#### Health Probes
-
-Both liveness and readiness probes are configured:
-```yaml
-livenessProbe:
-  httpGet:
-    path: /healthz
-    port: 80
-  initialDelaySeconds: 30
-  periodSeconds: 10
-
-readinessProbe:
-  httpGet:
-    path: /healthz
-    port: 80
-  initialDelaySeconds: 5
-  periodSeconds: 5
-```
-
-### 5. Terraform Infrastructure
-
-This project includes two Terraform setups demonstrating different deployment approaches.
-
-#### EKS Cluster (k8s/tf/)
-
-Production-grade Kubernetes cluster that **automatically** deploys the complete stack including the application.
-
-**What Terraform deploys:**
-
-- **VPC Infrastructure**: Public and private subnets across multiple AZs with proper routing
-- **EKS Cluster**: Managed Kubernetes cluster with SPOT instance node groups
-- **EKS Add-ons**: CoreDNS, kube-proxy, VPC CNI for cluster functionality
-- **AWS Load Balancer Controller**: Automatically provisions ALBs for Ingress resources
-- **ArgoCD**: GitOps tool installed and configured in the `argocd` namespace
-- **Nginx Application**: Deployed via Helm directly from Terraform
-- **Ingress Resources**: 
-  - ALB for Nginx application (port 80)
-  - Separate ALB for ArgoCD UI (port 8080)
-
-
-### 4. CI/CD Pipeline
-
-#### Pipeline Overview
-
-The GitHub Actions pipeline automates the entire deployment:
-
-1. Triggers on changes to `nginx/index.html`, Dockerfile, or Helm charts
-2. Authenticates with AWS using OIDC (no stored credentials)
-3. Builds Docker image with unique tag based on build number
-4. Pushes image to Amazon ECR
-5. Updates Helm `values.yaml` with new image tag
-6. Commits changes back to repository
-7. ArgoCD detects the change and deploys automatically
-
-#### Why CI and CD Are Combined Here
-
-Normally, I would separate CI and CD into different pipelines for better control and separation of concerns. However, for this example project, they are combined to demonstrate the complete flow in a single pipeline. In production, you would typically:
-
-- Have CI pipeline build and push images
-- Have separate CD pipeline or tool (like ArgoCD) handle deployments
-- Use different triggers and approval gates
-
-#### Branch Strategy (Single Branch for Demo)
-
-For this demonstration, I'm using only the `main` branch to keep things simple. However, in a real production environment, I would implement a proper branching strategy:
-
-**Production Branch Strategy:**
-```
-feature/add-new-content  →  dev  →  staging  →  main (production)
-```
-
-**How it would work:**
-
-1. **Feature branches**: Developer creates `feature/update-homepage` and modifies `index.html`
-2. **Dev environment**: Merge to `dev` branch triggers deployment to dev cluster
-3. **Staging environment**: After testing in dev, merge to `staging` branch for pre-production testing
-4. **Production**: Only after staging approval, merge to `main` for production deployment
-
-Each environment would have:
-- Its own Kubernetes namespace or cluster
-- Separate ArgoCD applications pointing to different branches
-- Different resource allocations and configurations
-- Approval gates between environments
-
-**Why single branch here:**
-This is purely for demonstration purposes to show the complete pipeline in action. The single branch approach makes it easier to understand the flow but should never be used in production where you need proper testing gates and rollback capabilities.
-
-#### ArgoCD for GitOps
-
-I chose ArgoCD for the CD portion because:
-
-- **GitOps approach**: Your Git repository is the single source of truth
-- **Reliability**: ArgoCD continuously monitors Git and ensures cluster state matches desired state
-- **Rollback**: Easy to rollback by reverting Git commits
-- **Visibility**: ArgoCD UI shows deployment status and history
-- **Self-healing**: Automatically corrects drift between Git and cluster state
-
-The pipeline updates `values.yaml`, and ArgoCD automatically syncs the changes to the cluster.
-
-#### Testing the Pipeline
-
-1. Edit `nginx/index.html` and change the text
-2. Commit and push to main branch
-3. GitHub Actions will:
-   - Build new image as `build-<number>`
-   - Push to ECR
-   - Update values.yaml
-4. ArgoCD will detect the change and deploy
-5. Access the ALB URL to see updated content
-
-### 5. Terraform Infrastructure
-
-#### EC2 with ALB (tf/)
-
-Traditional EC2-based deployment with:
-
-- VPC with public and private subnets
-- EC2 instance in private subnet running Docker
-- Application Load Balancer in public subnet
-- VPC Endpoints for private ECR access (no internet required)
-- NAT instance for outbound connectivity
-- Proper security groups with least-privilege access
-```bash
-cd tf
+# Initialize Terraform
 terraform init
+
+# Review the plan
 terraform plan
+
+# Deploy everything (takes ~15-20 minutes)
 terraform apply
 
-# Get ALB DNS
-terraform output alb_dns_name
+# Update kubeconfig to access the cluster
+aws eks update-kubeconfig --region eu-north-1 --name <cluster-name>
+
+# Verify the deployment
+kubectl get pods -A
+kubectl get svc -A
+kubectl get ingress -A
+
+# Get the application URL
+kubectl get ingress nginx-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+
+# Get ArgoCD URL (port 8080)
+kubectl get ingress argocd-ingress -n argocd -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+
+# Get ArgoCD admin password
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
 ```
 
-**Key Features:**
+**What Terraform Deploys:**
+- Complete VPC with public/private subnets across multiple AZs
+- EKS cluster with SPOT instance node groups
+- AWS Load Balancer Controller
+- ArgoCD configured for GitOps
+- Nginx application deployed via Helm
+- Ingress resources for both Nginx and ArgoCD
 
-- **Security**: EC2 in private subnet, no public IP
-- **Cost optimization**: Uses VPC endpoints to avoid NAT Gateway costs
-- **Encryption**: EBS volumes encrypted at rest
-- **IAM roles**: EC2 can pull from ECR without credentials
+#### Testing the CI/CD Pipeline:
 
-## Bash Scripts
+1. Edit `nginx/index.html` and change the text from "Test Environment" to "Environment2"
+2. Commit and push to main branch:
+```bash
+   git add nginx/index.html
+   git commit -m "Update environment text"
+   git push origin main
+```
+3. GitHub Actions will automatically:
+   - Build new Docker image with tag `build-<number>`
+   - Push to ECR
+   - Update `k8s/helm/values.yaml` with new tag
+   - Commit changes back to repo
+4. ArgoCD detects the change and deploys automatically
+5. Access the ALB URL to see the updated text
 
-### build_and_run.sh
+**Expected Result:** The web page should now display "Environment2" instead of "Test Environment"
 
-Builds and runs the Docker container locally.
+#### Architecture Notes:
+
+**Why CI and CD Are Combined:**
+For this demo, CI and CD are in one pipeline to show the complete flow. In production, I would separate them for better control.
+
+**Branch Strategy:**
+This demo uses only `main` branch for simplicity. In production, I would use:
+```
+feature/update-page → dev → staging → main
+```
+With separate environments and approval gates between each stage.
+
+**ArgoCD for GitOps:**
+ArgoCD continuously monitors the Git repository and automatically syncs changes to the cluster. This provides:
+- Git as single source of truth
+- Automatic deployment of changes
+- Easy rollback via Git revert
+- Drift detection and self-healing
+
+**ArgoCD Access:**
+In this demo, ArgoCD is exposed on the same ALB as the application (port 8080) to reduce costs. In production, I would place ArgoCD behind an internal ALB accessible only via VPN or bastion host for security.
+
+---
+
+### Task 5: Terraform Infrastructure
+
+This task demonstrates an alternative EC2-based deployment approach with proper networking and security.
+
+#### What's Included:
+
+**Infrastructure Components:**
+- **VPC**: Public and private subnets across availability zones
+- **EC2 Instance**: In private subnet running Docker with Nginx
+- **Application Load Balancer**: In public subnet for external access
+- **VPC Endpoints**: For private ECR access without internet
+  - ECR API endpoint
+  - ECR DKR endpoint
+  - S3 Gateway endpoint
+- **NAT Instance**: For outbound connectivity from private subnet
+- **Security Groups**: Least-privilege access rules
+- **IAM Roles**: EC2 can pull from ECR without credentials
+
+#### Deploy:
+```bash
+# Navigate to EC2 Terraform directory
+cd tf
+
+# Initialize Terraform
+terraform init
+
+# Review the plan
+terraform plan
+
+# Deploy the infrastructure
+terraform apply
+
+# Get the ALB DNS name
+terraform output alb_dns_name
+
+# Access the application
+curl http://<alb-dns-name>
+```
+
+**What Happens During Deployment:**
+
+1. Terraform creates VPC with public/private subnets
+2. Creates NAT instance for private subnet internet access
+3. Creates VPC endpoints for private ECR communication
+4. Launches EC2 instance in private subnet
+5. EC2 user data script:
+   - Installs Docker
+   - Authenticates with ECR
+   - Pulls Nginx image from ECR
+   - Runs container on port 80
+6. Creates ALB in public subnet
+7. Configures health checks on `/healthz` endpoint
+8. Routes traffic from ALB to EC2
+
+#### Security Features:
+
+- **Private EC2**: No public IP, isolated in private subnet
+- **VPC Endpoints**: ECR access without internet traversal
+- **Security Groups**: 
+  - ALB accepts HTTP from anywhere
+  - EC2 only accepts traffic from ALB
+  - VPC endpoints only accept traffic from EC2
+- **Encrypted Storage**: EBS volumes encrypted at rest
+- **IAM Roles**: No hardcoded credentials
+
+#### Cost Optimization Notes:
+
+**NAT Instance vs NAT Gateway:**
+- I used NAT instance ($3-5/month) instead of NAT Gateway ($32+/month)
+- This is for demonstration/cost savings
+- **Production**: Always use NAT Gateway for reliability and performance
+
+**VPC Endpoints:**
+- Avoid NAT Gateway data transfer charges
+- Faster and more secure ECR access
+- Free for interface endpoints (pay per GB transferred)
+- S3 Gateway endpoint is completely free
+
+---
+
+### Task 6: Bash Scripts
+
+These scripts automate common Docker operations for local development and testing.
+
+#### build_and_run.sh
+
+Automates building and running the Docker container locally.
+
+**Features:**
+- Builds Docker image from Dockerfile
+- Stops and removes existing container if running
+- Starts new container with specified port
+- Validates exit codes
+- Provides clear logging
+- Shows URL to access application
 
 **Usage:**
 ```bash
-# Use defaults (nginx image, port 80)
+cd bash
+
+# Use defaults (image: nginx, port: 80)
 ./build_and_run.sh
 
 # Custom image name and port
 ./build_and_run.sh nginx 80
 ```
 
+**Example Output:**
+```
+[INFO] Building Docker image: nginx (Dockerfile must be in this folder)
+[INFO] Stopping existing container (if running)...
+[INFO] Starting new container on port 80
+[SUCCESS] Container is running.
+[INFO] Open this in your browser: http://localhost:80
+```
+
+**How It Works:**
+1. Accepts image name and port as parameters (with defaults)
+2. Builds Docker image using `docker build`
+3. Checks for existing container with same name
+4. Removes old container if exists
+5. Runs new container with `-d` (detached) and port mapping
+6. Checks exit code and reports success/failure
+
+---
+
+#### check_health.sh
+
+Polls a health check endpoint until it returns HTTP 200 or times out.
+
 **Features:**
-
-- Validates input parameters
-- Stops and removes existing container if running
-- Provides URL to access the application
-- Clear error messages and logging
-
-### check_health.sh
-
-Polls a URL until it returns HTTP 200 or times out.
+- Configurable URL and timeout
+- Distinguishes between network errors and HTTP errors
+- Retries with configurable interval
+- Returns proper exit codes (0 for success, 1 for failure)
+- Useful for CI/CD pipelines and scripts
 
 **Usage:**
 ```bash
-# Check with default 20s timeout (port 80)
+cd bash
+
+# Check with default 20s timeout
 ./check_health.sh http://localhost/healthz
 
-# Custom timeout
+# Custom timeout (60 seconds)
 ./check_health.sh http://localhost/healthz 60
 
 # For custom port
 ./check_health.sh http://localhost:80/healthz 30
 ```
+
+**Example Output:**
+```
+[INFO] Checking health for: http://localhost/healthz
+[INFO] Timeout: 20s, Interval: 2s
+[WARN] Service not healthy yet (HTTP 000). Retrying...
+[SUCCESS] Service is healthy (HTTP 200).
+```
+
+**How It Works:**
+1. Validates URL parameter is provided
+2. Loops until timeout is reached
+3. Uses `curl` to check endpoint (silent mode)
+4. Captures HTTP status code
+5. Checks both curl exit code and HTTP status
+6. Handles two failure modes:
+   - Network/connection errors (curl fails)
+   - HTTP errors (curl succeeds but status ≠ 200)
+7. Returns exit code 0 if healthy, 1 if timeout
+
+---
 
 ## Architecture Decisions
 
@@ -464,35 +553,33 @@ Polls a URL until it returns HTTP 200 or times out.
 
 ### Cost Optimization
 
-**SPOT Instances**
-
+**SPOT Instances:**
 I used SPOT instances for the EKS node groups to reduce costs by approximately 70% compared to On-Demand instances. However, this is purely for demonstration purposes.
 
-**Production consideration**: In a real production environment, the decision to use SPOT instances depends heavily on the service type:
-- **Not recommended for**: Critical services that require guaranteed uptime, stateful applications, databases
+**Production consideration**: The decision to use SPOT instances depends heavily on the service type:
+- **Not recommended for**: Critical services requiring guaranteed uptime, stateful applications, databases
 - **Suitable for**: Batch processing, CI/CD runners, fault-tolerant distributed systems
-- **Best practice**: Use a mix of On-Demand and SPOT instances with proper pod disruption budgets
+- **Best practice**: Use a mix of On-Demand and SPOT instances with pod disruption budgets
 
 For production workloads requiring zero downtime, I would always use On-Demand or Reserved Instances.
 
-**NAT Instance vs NAT Gateway**
-
-I implemented a NAT instance in this project to minimize costs for the demonstration. However, in production, I would always choose NAT Gateway instead.
+**NAT Instance vs NAT Gateway:**
+I implemented a NAT instance to minimize costs for the demonstration. In production, I would always choose NAT Gateway.
 
 **Why NAT Gateway for production:**
-- **High availability**: Managed service with automatic failover
-- **Scalability**: Handles up to 45 Gbps without manual intervention
-- **No maintenance**: AWS manages patches and updates
-- **Better performance**: Optimized for production traffic
+- High availability with automatic failover
+- Handles up to 45 Gbps without manual intervention
+- AWS manages patches and updates
+- Better performance for production traffic
 
-**Why I used NAT instance here:**
-- **Cost savings**: NAT instance costs around $3-5/month vs NAT Gateway at $32+/month
-- **Demonstration purposes**: Shows the concept without ongoing AWS charges
+**Why NAT instance here:**
+- Cost savings: $3-5/month vs $32+/month
+- Demonstration purposes without ongoing AWS charges
 
-**Other cost optimizations:**
-- **VPC endpoints**: Avoid NAT Gateway data transfer charges
-- **Alpine images**: Smaller images reduce storage and transfer costs
-- **Resource limits**: Prevent resource waste in Kubernetes
+**Other optimizations:**
+- VPC endpoints avoid NAT Gateway data transfer charges
+- Alpine images reduce storage and transfer costs
+- Resource limits prevent waste in Kubernetes
 
 ### Reliability
 
@@ -502,24 +589,6 @@ I implemented a NAT instance in this project to minimize costs for the demonstra
 - **ALB health checks**: Load balancer only sends traffic to healthy targets
 - **Multi-AZ**: Resources spread across availability zones
 
-### ArgoCD and ALB Placement
-
-**Current setup (for demonstration):**
-In this project, ArgoCD is exposed on the same ALB as the application (on port 8080) to simplify the setup and reduce costs.
-
-**Production approach:**
-In a production environment, I would never expose ArgoCD on the same ALB as the application. Instead:
-
-- **Internal ALB for ArgoCD**: Deploy ArgoCD behind an internal-facing ALB accessible only from within the VPC or through VPN/bastion
-- **Separate ALB for application**: Keep application traffic completely isolated
-
-**Why separate them:**
-- **Security**: ArgoCD has access to deploy across your cluster and should not be publicly accessible
-- **Blast radius**: Compromise of one service doesn't affect the other
-- **Traffic isolation**: Application traffic spikes don't impact ArgoCD performance
-
-The combined ALB approach here is purely to demonstrate the concepts without additional AWS costs.
-
 ### Best Practices
 
 - **Infrastructure as Code**: All infrastructure in Terraform
@@ -528,6 +597,21 @@ The combined ALB approach here is purely to demonstrate the concepts without add
 - **Semantic versioning**: Image tags include build numbers
 - **Automated deployments**: CI/CD pipeline for consistency
 - **State management**: Terraform state in S3 with encryption
+
+## Production vs Demo Trade-offs
+
+This project makes several trade-offs for demonstration and cost purposes that would be handled differently in production:
+
+| Component | Demo Approach | Production Approach |
+|-----------|--------------|---------------------|
+| **Compute** | SPOT instances | On-Demand or Reserved Instances |
+| **NAT** | NAT Instance | NAT Gateway (managed) |
+| **ArgoCD Access** | Same ALB as app (port 8080) | Internal ALB, VPN/bastion access |
+| **Branching** | Single `main` branch | feature → dev → staging → main |
+| **CI/CD** | Combined pipeline | Separate CI and CD pipelines |
+| **Environments** | Single environment | dev, staging, production clusters |
+| **High Availability** | 2 replicas, single NAT | 3+ replicas, NAT per AZ |
+| **Monitoring** | Basic health checks | Full observability stack |
 
 ## Troubleshooting
 
@@ -590,21 +674,4 @@ kubectl get applications -n argocd
 kubectl patch application nginx-app -n argocd -p '{"operation":{"initiatedBy":{"username":"admin"},"sync":{"revision":"HEAD"}}}' --type=merge
 ```
 
-## Production vs Demo Trade-offs
-
-This project makes several trade-offs for demonstration and cost purposes that would be handled differently in production:
-
-| Component | Demo Approach | Production Approach |
-|-----------|--------------|---------------------|
-| **Compute** | SPOT instances | On-Demand or Reserved Instances |
-| **NAT** | NAT Instance | NAT Gateway (managed) |
-| **ArgoCD Access** | Same ALB as app (port 8080) | Internal ALB, VPN/bastion access |
-| **Branching** | Single `main` branch | feature → dev → staging → main |
-| **CI/CD** | Combined pipeline | Separate CI and CD pipelines |
-| **Environments** | Single environment | dev, staging, production clusters |
-| **High Availability** | 2 replicas, single NAT | 3+ replicas, NAT per AZ |
-| **Monitoring** | Basic health checks | Full observability stack |
-
-## License
-
-This is a demonstration project for educational purposes.
+![Architecture](image.png)

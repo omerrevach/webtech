@@ -14,10 +14,7 @@ variable "public_cidrs" {
   type        = list(string)
 }
 
-variable "private_cidrs" {
-  description = "List of private subnet CIDRs"
-  type        = list(string)
-}
+variable "private_cidrs" {}
 
 variable "instance_type" {
   description = "Instance type for NAT instance"

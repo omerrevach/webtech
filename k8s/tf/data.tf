@@ -10,7 +10,7 @@ data "kubernetes_secret_v1" "argocd_admin_password" {
   depends_on = [time_sleep.wait_for_alb_controller]
 }
 
-# Output the Ingress URL
+# Output Ingress URL
 data "kubernetes_ingress_v1" "nginx" {
   metadata {
     name      = "nginx-ingress"
